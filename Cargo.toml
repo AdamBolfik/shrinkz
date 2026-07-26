@@ -1,0 +1,20 @@
+[package]
+name = "shrinkz"
+version = "0.1.0"
+edition = "2021"
+description = "Shrinkz — modern territory-claim arcade"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+bevy = "0.19"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = true
+codegen-units = 1
