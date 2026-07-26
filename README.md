@@ -26,6 +26,7 @@ First time enabling Pages on this repo: **Settings → Pages → Source → GitH
 - **Score** increases when you claim area and when you clear a level (level bonus + lives remaining).
 - Optional **timer** is off by default (`GameConfig.timer_enabled`); when on, expiry is game over.
 - **P** pause / resume · **R** restart level (keeps score) · **N** new game (score resets)
+- **T** or **Theme** button — cycle color themes (Midnight, Arcade, Neon, Paper, Forest, Sunset)
 
 ## Requirements
 

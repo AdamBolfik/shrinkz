@@ -1,14 +1,20 @@
+mod theme;
+
 use bevy::prelude::*;
 use shrinkz::{
     Axis, GameCommand, GameConfig, GameSession, GameSnapshot, Phase, Rect, Vec2 as SimVec2,
     WallView,
 };
+use theme::{ActiveTheme, ThemeId};
 
 const PLAYFIELD_WIDTH: f32 = 800.0;
 const PLAYFIELD_HEIGHT: f32 = 600.0;
 const FIXED_HZ: f32 = 60.0;
 
 fn main() {
+    let active = ActiveTheme::default();
+    let clear = active.palette().window_clear;
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -18,7 +24,8 @@ fn main() {
             }),
             ..default()
         }))
-        .insert_resource(ClearColor(Color::srgb(0.04, 0.045, 0.06)))
+        .insert_resource(ClearColor(clear))
+        .insert_resource(active)
         .insert_resource(PreferredAxis(Axis::Horizontal))
         .insert_resource(SessionResource(GameSession::new(default_config())))
         .insert_resource(SnapshotResource(
@@ -30,6 +37,7 @@ fn main() {
             Update,
             (
                 read_input,
+                apply_theme_to_ui,
                 update_axis_indicator,
                 fixed_sim_step,
                 sync_snapshot,
@@ -64,6 +72,15 @@ struct PreferredAxis(Axis);
 struct HudText;
 
 #[derive(Component)]
+struct HelpText;
+
+#[derive(Component)]
+struct ThemeLabel;
+
+#[derive(Component)]
+struct ThemeCycleButton;
+
+#[derive(Component)]
 struct AxisToggleButton;
 
 #[derive(Component)]
@@ -86,7 +103,8 @@ fn setup_camera(mut commands: Commands) {
     commands.spawn((WorldRoot, Transform::default(), Visibility::default()));
 }
 
-fn setup_ui(mut commands: Commands) {
+fn setup_ui(mut commands: Commands, theme: Res<ActiveTheme>) {
+    let palette = theme.palette();
     commands
         .spawn((
             Node {
@@ -106,7 +124,7 @@ fn setup_ui(mut commands: Commands) {
                     font_size: FontSize::Px(22.0),
                     ..default()
                 },
-                TextColor(Color::srgb(0.9, 0.92, 0.95)),
+                TextColor(palette.hud_text),
                 HudText,
             ));
 
@@ -114,6 +132,8 @@ fn setup_ui(mut commands: Commands) {
                 flex_direction: FlexDirection::Row,
                 column_gap: Val::Px(8.0),
                 align_items: AlignItems::Center,
+                flex_wrap: FlexWrap::Wrap,
+                row_gap: Val::Px(6.0),
                 ..default()
             })
             .with_children(|row| {
@@ -125,7 +145,7 @@ fn setup_ui(mut commands: Commands) {
                         border_radius: BorderRadius::all(Val::Px(6.0)),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.2, 0.35, 0.55)),
+                    BackgroundColor(palette.axis_horizontal),
                 ))
                 .with_children(|btn| {
                     btn.spawn((
@@ -134,20 +154,43 @@ fn setup_ui(mut commands: Commands) {
                             font_size: FontSize::Px(16.0),
                             ..default()
                         },
-                        TextColor(Color::WHITE),
+                        TextColor(palette.button_text),
                         AxisToggleLabel,
                     ));
                 });
 
                 row.spawn((
+                    Button,
+                    ThemeCycleButton,
+                    Node {
+                        padding: UiRect::axes(Val::Px(14.0), Val::Px(8.0)),
+                        border_radius: BorderRadius::all(Val::Px(6.0)),
+                        ..default()
+                    },
+                    BackgroundColor(palette.axis_vertical),
+                ))
+                .with_children(|btn| {
+                    btn.spawn((
+                        Text::new(format!("Theme: {}", ThemeId::Midnight.display_name())),
+                        TextFont {
+                            font_size: FontSize::Px(16.0),
+                            ..default()
+                        },
+                        TextColor(palette.button_text),
+                        ThemeLabel,
+                    ));
+                });
+
+                row.spawn((
                     Text::new(
-                        "[LMB] primary  [RMB]/Shift] vertical  [P] pause  [R] restart level  [N] new game",
+                        "[LMB] primary  [RMB]/Shift] vertical  [T] theme  [P] pause  [R] restart  [N] new game",
                     ),
                     TextFont {
                         font_size: FontSize::Px(13.0),
                         ..default()
                     },
-                    TextColor(Color::srgb(0.65, 0.7, 0.75)),
+                    TextColor(palette.help_text),
+                    HelpText,
                 ));
             });
         });
@@ -181,10 +224,12 @@ fn read_input(
     camera_q: Query<(&Camera, &GlobalTransform)>,
     mut preferred: ResMut<PreferredAxis>,
     mut pending: ResMut<PendingCommand>,
+    mut theme: ResMut<ActiveTheme>,
     session: Res<SessionResource>,
-    toggle_q: Query<&Interaction, (Changed<Interaction>, With<AxisToggleButton>)>,
+    axis_toggle_q: Query<&Interaction, (Changed<Interaction>, With<AxisToggleButton>)>,
+    theme_toggle_q: Query<&Interaction, (Changed<Interaction>, With<ThemeCycleButton>)>,
 ) {
-    for interaction in &toggle_q {
+    for interaction in &axis_toggle_q {
         if *interaction == Interaction::Pressed {
             preferred.0 = match preferred.0 {
                 Axis::Horizontal => Axis::Vertical,
@@ -193,6 +238,15 @@ fn read_input(
         }
     }
 
+    for interaction in &theme_toggle_q {
+        if *interaction == Interaction::Pressed {
+            theme.cycle();
+        }
+    }
+
+    if keys.just_pressed(KeyCode::KeyT) {
+        theme.cycle();
+    }
     if keys.just_pressed(KeyCode::KeyP) {
         let snap = session.0.snapshot();
         pending.0 = Some(match snap.phase {
@@ -234,22 +288,75 @@ fn read_input(
     }
 }
 
+/// Push active theme colors into static UI chrome (clear color, HUD, help, theme button).
+fn apply_theme_to_ui(
+    theme: Res<ActiveTheme>,
+    mut clear: ResMut<ClearColor>,
+    mut hud: Query<
+        &mut TextColor,
+        (
+            With<HudText>,
+            Without<HelpText>,
+            Without<ThemeLabel>,
+            Without<AxisToggleLabel>,
+        ),
+    >,
+    mut help: Query<&mut TextColor, (With<HelpText>, Without<HudText>)>,
+    mut theme_label: Query<&mut Text, With<ThemeLabel>>,
+    mut theme_label_color: Query<
+        &mut TextColor,
+        (With<ThemeLabel>, Without<HelpText>, Without<HudText>),
+    >,
+    mut theme_btn_bg: Query<
+        &mut BackgroundColor,
+        (With<ThemeCycleButton>, Without<AxisToggleButton>),
+    >,
+    mut axis_label_color: Query<&mut TextColor, (With<AxisToggleLabel>, Without<ThemeLabel>)>,
+) {
+    let palette = theme.palette();
+    clear.0 = palette.window_clear;
+
+    for mut color in &mut hud {
+        color.0 = palette.hud_text;
+    }
+    for mut color in &mut help {
+        color.0 = palette.help_text;
+    }
+    let theme_name = format!("Theme: {}", theme.id.display_name());
+    for mut text in &mut theme_label {
+        if text.0 != theme_name {
+            text.0 = theme_name.clone();
+        }
+    }
+    for mut color in &mut theme_label_color {
+        color.0 = palette.button_text;
+    }
+    for mut bg in &mut theme_btn_bg {
+        *bg = BackgroundColor(palette.axis_vertical);
+    }
+    for mut color in &mut axis_label_color {
+        color.0 = palette.button_text;
+    }
+}
+
 /// Keep the bottom axis control in sync with preferred axis and Shift (vertical override).
 fn update_axis_indicator(
     keys: Res<ButtonInput<KeyCode>>,
     preferred: Res<PreferredAxis>,
+    theme: Res<ActiveTheme>,
     mut toggle_text: Query<&mut Text, With<AxisToggleLabel>>,
-    mut toggle_bg: Query<&mut BackgroundColor, With<AxisToggleButton>>,
+    mut toggle_bg: Query<&mut BackgroundColor, (With<AxisToggleButton>, Without<ThemeCycleButton>)>,
 ) {
+    let palette = theme.palette();
     let shift = shift_is_held(&keys);
     let axis = effective_axis(preferred.0, shift);
     let label = axis_label(axis, shift);
     let color = if shift {
-        Color::srgb(0.45, 0.32, 0.15) // warm while Shift forces vertical
+        palette.axis_shift
     } else {
         match preferred.0 {
-            Axis::Horizontal => Color::srgb(0.2, 0.35, 0.55),
-            Axis::Vertical => Color::srgb(0.25, 0.4, 0.35),
+            Axis::Horizontal => palette.axis_horizontal,
+            Axis::Vertical => palette.axis_vertical,
         }
     };
 
@@ -313,6 +420,7 @@ fn sync_snapshot(session: Res<SessionResource>, mut snapshot: ResMut<SnapshotRes
 fn draw_world(
     mut commands: Commands,
     snapshot: Res<SnapshotResource>,
+    theme: Res<ActiveTheme>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     root_q: Query<Entity, With<WorldRoot>>,
@@ -326,14 +434,13 @@ fn draw_world(
         return;
     };
     let snap = &snapshot.0;
+    let palette = theme.palette();
 
-    // Classic look: playfield painted as filled, free chambers carved out on top.
-    // Free color differs from window clear so letterboxing is not mistaken for free space.
-    let claimed_mat = materials.add(Color::srgb(0.32, 0.40, 0.55));
-    let free_mat = materials.add(Color::srgb(0.06, 0.07, 0.10));
-    let border_mat = materials.add(Color::srgb(0.55, 0.58, 0.65));
+    // Playfield painted as filled; free chambers carved out on top.
+    let claimed_mat = materials.add(palette.claimed);
+    let free_mat = materials.add(palette.free);
+    let border_mat = materials.add(palette.playfield_border);
 
-    // Outer playfield border (makes bounds obvious vs window chrome).
     let border = 4.0_f32;
     let border_mesh = meshes.add(Rectangle::new(
         PLAYFIELD_WIDTH + border * 2.0,
@@ -372,8 +479,8 @@ fn draw_world(
         });
     }
 
-    let wall_mat = materials.add(Color::srgb(0.90, 0.92, 0.96));
-    let growing_mat = materials.add(Color::srgb(0.95, 0.7, 0.25));
+    let wall_mat = materials.add(palette.wall);
+    let growing_mat = materials.add(palette.wall_growing);
 
     for wall in &snap.walls {
         spawn_wall_mesh(&mut commands, root, &mut meshes, wall_mat.clone(), wall, 1.0);
@@ -382,7 +489,7 @@ fn draw_world(
         spawn_wall_mesh(&mut commands, root, &mut meshes, growing_mat, wall, 1.5);
     }
 
-    let ball_mat = materials.add(Color::srgb(0.95, 0.35, 0.4));
+    let ball_mat = materials.add(palette.ball);
     for ball in &snap.balls {
         let mesh = meshes.add(Circle::new(ball.radius));
         let pos = playfield_to_world(ball.position);
