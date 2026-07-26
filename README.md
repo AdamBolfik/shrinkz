@@ -4,6 +4,14 @@ Modern territory-claim arcade game inspired by classic bounce-and-claim titles. 
 
 Built with **Bevy 0.19** (Rust). Original code and assets — product name is **Shrinkz**.
 
+## Play in the browser
+
+**Live:** [https://adambolfik.github.io/shrinkz/](https://adambolfik.github.io/shrinkz/)
+
+Pushes to `main` build WASM with Trunk and deploy via GitHub Pages (see `.github/workflows/deploy-pages.yml`).
+
+First time enabling Pages on this repo: **Settings → Pages → Source → GitHub Actions**.
+
 ## Rules
 
 - **Left click** (or primary button): start a wall using the preferred axis (see toggle).
@@ -23,6 +31,7 @@ Built with **Bevy 0.19** (Rust). Original code and assets — product name is **
 
 - Rust toolchain (1.85+ recommended; developed with 1.96)
 - A GPU-capable desktop environment for the native window
+- For web: `wasm32-unknown-unknown` target and [Trunk](https://trunkrs.dev/)
 
 ## Run (desktop)
 
@@ -44,61 +53,32 @@ cargo test
 
 Simulation rules are covered by behavioral tests in `tests/sim_session.rs` (no window required).
 
-## Web / WASM (local)
+## Web / WASM
 
-Install a WASM target and a static server tool:
+### Local
 
 ```bash
 rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli   # or: cargo install trunk
-```
-
-### Option A — trunk (recommended when available)
-
-```bash
-# from repo root after adding an index.html + Trunk.toml (see below)
+cargo install trunk
 trunk serve
+# open http://127.0.0.1:8080
 ```
 
-A minimal `index.html` for trunk:
-
-```html
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Shrinkz</title>
-    <style>
-      html, body, canvas { margin: 0; width: 100%; height: 100%; background: #14161c; }
-    </style>
-  </head>
-  <body>
-    <link data-trunk rel="rust" data-bin="shrinkz" data-wasm-opt="z" />
-  </body>
-</html>
-```
-
-And `Trunk.toml`:
-
-```toml
-[build]
-public_url = "./"
-```
-
-Then open the URL trunk prints (usually `http://127.0.0.1:8080`).
-
-### Option B — wasm-bindgen manual
+Release bundle (writes `dist/`):
 
 ```bash
-cargo build --release --target wasm32-unknown-unknown
-wasm-bindgen --out-dir dist --target web target/wasm32-unknown-unknown/release/shrinkz.wasm
-# serve dist/ with any static file server, e.g.:
-python3 -m http.server -d dist 8080
+trunk build --release
 ```
+
+### GitHub Pages (CI)
+
+Workflow: `.github/workflows/deploy-pages.yml`
+
+- Triggers on push to `main` (and manual `workflow_dispatch`)
+- Builds with `trunk build --release` and `TRUNK_PUBLIC_URL=/shrinkz/`
+- Deploys the `dist/` folder to GitHub Pages
 
 **Web controls:** left click uses the axis toggle; **Shift+click** or **right-click** for vertical when the browser allows it.
-
-No remote host is required for v1 — local serve only.
 
 ## Project layout
 
@@ -112,6 +92,8 @@ src/
     session.rs
 tests/
   sim_session.rs  # behavioral sim tests
+.github/workflows/
+  deploy-pages.yml
 plans/
   modern-shrinkz-clone.md
 ```
@@ -128,7 +110,7 @@ plans/
 | `cargo build` (macOS) | pass |
 | `cargo test` (B1–B15, B19–B22) | pass |
 | Desktop window (`cargo run`) | manual — run locally |
-| Local WASM | pipeline documented; smoke after trunk/wasm-bindgen install |
+| GitHub Pages (Trunk WASM) | CI on push to `main` |
 
 ## License
 

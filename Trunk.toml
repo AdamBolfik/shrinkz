@@ -1,6 +1,14 @@
 [build]
-public_url = "./"
+# Relative paths work for local trunk serve; CI sets TRUNK_PUBLIC_URL=/shrinkz/ for GitHub Pages.
 target = "index.html"
+dist = "dist"
+public_url = "./"
+filehash = true
 
 [watch]
-ignore = ["plans"]
+ignore = ["plans", "dist", "target", ".github"]
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+open = false
