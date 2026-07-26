@@ -292,50 +292,40 @@ fn read_input(
 fn apply_theme_to_ui(
     theme: Res<ActiveTheme>,
     mut clear: ResMut<ClearColor>,
-    mut hud: Query<
-        &mut TextColor,
-        (
-            With<HudText>,
-            Without<HelpText>,
-            Without<ThemeLabel>,
-            Without<AxisToggleLabel>,
-        ),
-    >,
-    mut help: Query<&mut TextColor, (With<HelpText>, Without<HudText>)>,
+    // ParamSet: multiple &mut TextColor queries would conflict (B0001) without it.
+    mut text_colors: ParamSet<(
+        Query<&mut TextColor, With<HudText>>,
+        Query<&mut TextColor, With<HelpText>>,
+        Query<&mut TextColor, With<ThemeLabel>>,
+        Query<&mut TextColor, With<AxisToggleLabel>>,
+    )>,
     mut theme_label: Query<&mut Text, With<ThemeLabel>>,
-    mut theme_label_color: Query<
-        &mut TextColor,
-        (With<ThemeLabel>, Without<HelpText>, Without<HudText>),
-    >,
-    mut theme_btn_bg: Query<
-        &mut BackgroundColor,
-        (With<ThemeCycleButton>, Without<AxisToggleButton>),
-    >,
-    mut axis_label_color: Query<&mut TextColor, (With<AxisToggleLabel>, Without<ThemeLabel>)>,
+    mut theme_btn_bg: Query<&mut BackgroundColor, With<ThemeCycleButton>>,
 ) {
     let palette = theme.palette();
     clear.0 = palette.window_clear;
 
-    for mut color in &mut hud {
+    for mut color in &mut text_colors.p0() {
         color.0 = palette.hud_text;
     }
-    for mut color in &mut help {
+    for mut color in &mut text_colors.p1() {
         color.0 = palette.help_text;
     }
+    for mut color in &mut text_colors.p2() {
+        color.0 = palette.button_text;
+    }
+    for mut color in &mut text_colors.p3() {
+        color.0 = palette.button_text;
+    }
+
     let theme_name = format!("Theme: {}", theme.id.display_name());
     for mut text in &mut theme_label {
         if text.0 != theme_name {
             text.0 = theme_name.clone();
         }
     }
-    for mut color in &mut theme_label_color {
-        color.0 = palette.button_text;
-    }
     for mut bg in &mut theme_btn_bg {
         *bg = BackgroundColor(palette.axis_vertical);
-    }
-    for mut color in &mut axis_label_color {
-        color.0 = palette.button_text;
     }
 }
 
