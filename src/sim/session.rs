@@ -243,6 +243,9 @@ impl GameSession {
         let Some(growing) = self.growing.as_mut() else {
             return;
         };
+        // Only solids + playfield + free-chamber bounds. Do NOT clamp against claimed
+        // rects: those are rebuilt every frame and can falsely bleed into open chambers,
+        // which marked halves "done" mid-air with no life loss.
         let (neg_max, pos_max) = free_axis_limits(
             growing.origin,
             growing.axis,
@@ -251,7 +254,7 @@ impl GameSession {
             self.config.wall_thickness,
         );
         let (neg_max, pos_max) =
-            clamp_growth_by_claimed(growing, neg_max, pos_max, &self.claimed, self.config.wall_thickness);
+            clamp_growth_to_free_chamber(growing, neg_max, pos_max, &self.free);
 
         if growing.neg_alive && !growing.neg_done && !growing.neg_committed {
             growing.neg_extent = (growing.neg_extent + distance).min(neg_max);
@@ -362,15 +365,12 @@ impl GameSession {
             .map(|b| (b.position, self.config.ball_radius))
             .collect();
 
-        // Walls + still-growing segments block chambers for flood-fill.
-        let mut barriers = self.solids.clone();
-        if let Some(growing) = &self.growing {
-            barriers.extend(growing.growing_barrier_segments());
-        }
-
+        // Only committed solids seal chambers. Unfinished growing segments must not
+        // count as barriers — they can false-seal pockets and create phantom claimed
+        // that then freezes wall growth mid-air.
         let state = compute_claim_state(
             self.config.playfield,
-            &barriers,
+            &self.solids,
             &ball_data,
             self.config.wall_thickness,
             self.config.claim_grid_columns,
@@ -557,41 +557,65 @@ fn bounce_against_claimed(
     (pos, vel)
 }
 
-fn clamp_growth_by_claimed(
+/// Limit growth to the free chamber that contains the click origin.
+///
+/// Free rects come from ball flood-fill (open space). Using them avoids phantom
+/// claimed geometry stopping a half mid-chamber without a ball hit.
+fn clamp_growth_to_free_chamber(
     growing: &GrowingWall,
     mut neg_max: f32,
     mut pos_max: f32,
-    claimed: &[Rect],
-    thickness: f32,
+    free: &[Rect],
 ) -> (f32, f32) {
-    let half = thickness * 0.5;
+    let origin = growing.origin;
+    let mut found = false;
+    // Union of free rects that contain the origin (handles adjacent free tiles).
+    let mut min_along = f32::MAX;
+    let mut max_along = f32::MIN;
+
     match growing.axis {
         Axis::Horizontal => {
-            let y = growing.origin.y;
-            for rect in claimed {
-                if y + half < rect.top() || y - half > rect.bottom() {
+            for rect in free {
+                if !rect.contains_point(origin)
+                    && !(origin.y >= rect.top()
+                        && origin.y <= rect.bottom()
+                        && origin.x >= rect.left() - 0.5
+                        && origin.x <= rect.right() + 0.5)
+                {
                     continue;
                 }
-                if rect.right() <= growing.origin.x {
-                    neg_max = neg_max.min((growing.origin.x - rect.right()).max(0.0));
+                // Origin on this free band (y overlap is enough for horizontal growth
+                // if x is near the rect — prefer strict contains).
+                if origin.y < rect.top() || origin.y > rect.bottom() {
+                    continue;
                 }
-                if rect.left() >= growing.origin.x {
-                    pos_max = pos_max.min((rect.left() - growing.origin.x).max(0.0));
+                if origin.x < rect.left() - 1.0 || origin.x > rect.right() + 1.0 {
+                    continue;
                 }
+                found = true;
+                min_along = min_along.min(rect.left());
+                max_along = max_along.max(rect.right());
+            }
+            if found {
+                neg_max = neg_max.min((origin.x - min_along).max(0.0));
+                pos_max = pos_max.min((max_along - origin.x).max(0.0));
             }
         }
         Axis::Vertical => {
-            let x = growing.origin.x;
-            for rect in claimed {
-                if x + half < rect.left() || x - half > rect.right() {
+            for rect in free {
+                if origin.x < rect.left() || origin.x > rect.right() {
                     continue;
                 }
-                if rect.bottom() <= growing.origin.y {
-                    neg_max = neg_max.min((growing.origin.y - rect.bottom()).max(0.0));
+                if origin.y < rect.top() - 1.0 || origin.y > rect.bottom() + 1.0 {
+                    continue;
                 }
-                if rect.top() >= growing.origin.y {
-                    pos_max = pos_max.min((rect.top() - growing.origin.y).max(0.0));
-                }
+                found = true;
+                min_along = min_along.min(rect.top());
+                max_along = max_along.max(rect.bottom());
+            }
+            if found {
+                neg_max = neg_max.min((origin.y - min_along).max(0.0));
+                pos_max = pos_max.min((max_along - origin.y).max(0.0));
             }
         }
     }

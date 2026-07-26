@@ -165,33 +165,6 @@ impl GrowingWall {
         }
     }
 
-    /// Still-growing halves as temporary solid segments (block flood-fill / bounce).
-    pub fn growing_barrier_segments(&self) -> Vec<SolidWall> {
-        let mut parts = Vec::new();
-        if self.neg_alive && !self.neg_committed && !self.neg_done && self.neg_extent > 0.0 {
-            let (a, b) = self.neg_range();
-            if (b - a).abs() > f32::EPSILON {
-                parts.push(SolidWall {
-                    axis: self.axis,
-                    fixed: self.fixed(),
-                    start: a,
-                    end: b,
-                });
-            }
-        }
-        if self.pos_alive && !self.pos_committed && !self.pos_done && self.pos_extent > 0.0 {
-            let (a, b) = self.pos_range();
-            if (b - a).abs() > f32::EPSILON {
-                parts.push(SolidWall {
-                    axis: self.axis,
-                    fixed: self.fixed(),
-                    start: a,
-                    end: b,
-                });
-            }
-        }
-        parts
-    }
 }
 
 /// Max growth distances from origin along free axis until solid or playfield edge.
@@ -244,9 +217,6 @@ pub fn free_axis_limits(
 }
 
 /// Collision with a still-growing (not yet solid) wall half — destroys on hit.
-///
-/// Uses a slightly generous hit box so fast balls cannot tunnel through a segment
-/// between frames without registering a hit.
 pub fn circle_hits_growing_wall_half(
     center: Vec2,
     radius: f32,
@@ -275,8 +245,7 @@ pub fn circle_hits_growing_wall_half(
         start,
         end,
     };
-    // Inflate thickness slightly so grazing contacts still count as a hit.
-    circle_hits_solid(center, radius, solid, thickness + radius * 0.25)
+    circle_hits_solid(center, radius, solid, thickness)
 }
 
 pub fn circle_hits_solid(center: Vec2, radius: f32, wall: SolidWall, thickness: f32) -> bool {

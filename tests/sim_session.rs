@@ -488,6 +488,50 @@ fn enabled_timer_expiry_enters_game_over() {
     assert_eq!(snap.phase, Phase::GameOver);
 }
 
+/// Wall halves must grow to real solid bounds, not freeze mid-chamber without a life loss.
+#[test]
+fn wall_grows_across_open_chamber_without_false_stop() {
+    let mut cfg = config();
+    cfg.wall_growth_speed = 5000.0;
+    cfg.ball_speed = 0.0; // park ball so it cannot clip the wall under test
+    let mut session = GameSession::new(cfg.clone());
+    // Full vertical wall on the left; stationary ball stays on the right of center.
+    session.apply(
+        Some(GameCommand::StartWall {
+            origin: Vec2::new(40.0, 100.0),
+            axis: Axis::Vertical,
+        }),
+        Duration::ZERO,
+    );
+    step_many(&mut session, 40, 16);
+    let lives_before = session.snapshot().lives;
+    let walls_before = session.snapshot().walls.len();
+    assert!(lives_before >= 1);
+
+    // Horizontal wall in free space, away from the ball (ball near center ~100,100).
+    session.apply(
+        Some(GameCommand::StartWall {
+            origin: Vec2::new(120.0, 40.0),
+            axis: Axis::Horizontal,
+        }),
+        Duration::ZERO,
+    );
+    step_many(&mut session, 50, 16);
+    let snap = session.snapshot();
+    assert_eq!(
+        snap.lives, lives_before,
+        "wall completing to chamber edges must not cost a life"
+    );
+    assert!(
+        snap.wall_in_progress.is_none(),
+        "wall should fully resolve, not hang as in-progress stub"
+    );
+    assert!(
+        snap.walls.len() > walls_before,
+        "completed halves should become solid walls"
+    );
+}
+
 /// Completed wall halves become permanent solids (classic JezzBall half rules).
 #[test]
 fn finished_wall_half_becomes_solid_and_survives_in_snapshot() {
