@@ -30,6 +30,7 @@ fn main() {
             Update,
             (
                 read_input,
+                update_axis_indicator,
                 fixed_sim_step,
                 sync_snapshot,
                 draw_world,
@@ -152,6 +153,27 @@ fn setup_ui(mut commands: Commands) {
         });
 }
 
+fn shift_is_held(keys: &ButtonInput<KeyCode>) -> bool {
+    keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight)
+}
+
+/// Effective wall axis for primary click: Shift forces vertical; otherwise preferred.
+fn effective_axis(preferred: Axis, shift_held: bool) -> Axis {
+    if shift_held {
+        Axis::Vertical
+    } else {
+        preferred
+    }
+}
+
+fn axis_label(axis: Axis, shift_held: bool) -> String {
+    match axis {
+        Axis::Horizontal => "Axis: H".into(),
+        Axis::Vertical if shift_held => "Axis: V (Shift)".into(),
+        Axis::Vertical => "Axis: V".into(),
+    }
+}
+
 fn read_input(
     mouse: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -161,7 +183,6 @@ fn read_input(
     mut pending: ResMut<PendingCommand>,
     session: Res<SessionResource>,
     toggle_q: Query<&Interaction, (Changed<Interaction>, With<AxisToggleButton>)>,
-    mut toggle_text: Query<&mut Text, With<AxisToggleLabel>>,
 ) {
     for interaction in &toggle_q {
         if *interaction == Interaction::Pressed {
@@ -169,12 +190,6 @@ fn read_input(
                 Axis::Horizontal => Axis::Vertical,
                 Axis::Vertical => Axis::Horizontal,
             };
-            for mut text in &mut toggle_text {
-                text.0 = match preferred.0 {
-                    Axis::Horizontal => "Axis: H".into(),
-                    Axis::Vertical => "Axis: V".into(),
-                };
-            }
         }
     }
 
@@ -206,20 +221,45 @@ fn read_input(
     };
 
     let origin = screen_to_playfield(world);
-    let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let shift = shift_is_held(&keys);
 
     if mouse.just_pressed(MouseButton::Left) {
-        let axis = if shift {
-            Axis::Vertical
-        } else {
-            preferred.0
-        };
+        let axis = effective_axis(preferred.0, shift);
         pending.0 = Some(GameCommand::StartWall { origin, axis });
     } else if mouse.just_pressed(MouseButton::Right) {
         pending.0 = Some(GameCommand::StartWall {
             origin,
             axis: Axis::Vertical,
         });
+    }
+}
+
+/// Keep the bottom axis control in sync with preferred axis and Shift (vertical override).
+fn update_axis_indicator(
+    keys: Res<ButtonInput<KeyCode>>,
+    preferred: Res<PreferredAxis>,
+    mut toggle_text: Query<&mut Text, With<AxisToggleLabel>>,
+    mut toggle_bg: Query<&mut BackgroundColor, With<AxisToggleButton>>,
+) {
+    let shift = shift_is_held(&keys);
+    let axis = effective_axis(preferred.0, shift);
+    let label = axis_label(axis, shift);
+    let color = if shift {
+        Color::srgb(0.45, 0.32, 0.15) // warm while Shift forces vertical
+    } else {
+        match preferred.0 {
+            Axis::Horizontal => Color::srgb(0.2, 0.35, 0.55),
+            Axis::Vertical => Color::srgb(0.25, 0.4, 0.35),
+        }
+    };
+
+    for mut text in &mut toggle_text {
+        if text.0 != label {
+            text.0 = label.clone();
+        }
+    }
+    for mut bg in &mut toggle_bg {
+        *bg = BackgroundColor(color);
     }
 }
 
